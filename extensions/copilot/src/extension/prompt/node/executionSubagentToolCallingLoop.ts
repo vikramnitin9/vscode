@@ -4,14 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { randomUUID } from 'crypto';
-import type { CancellationToken, ChatRequest, ChatResponseStream, LanguageModelToolInformation, Progress } from 'vscode';
+import { lm, type CancellationToken, type ChatRequest, type ChatResponseStream, type LanguageModelToolInformation, type Progress } from 'vscode';
 import { IAuthenticationChatUpgradeService } from '../../../platform/authentication/common/authenticationUpgrade';
 import { IChatHookService } from '../../../platform/chat/common/chatHookService';
 import { ChatLocation, ChatResponse } from '../../../platform/chat/common/commonTypes';
 import { ISessionTranscriptService } from '../../../platform/chat/common/sessionTranscriptService';
 import { ConfigKey, IConfigurationService } from '../../../platform/configuration/common/configurationService';
-import { ChatEndpointFamily, IEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
-import { ProxyAgenticEndpoint } from '../../../platform/endpoint/node/proxyAgenticEndpoint';
+import { IEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
 import { IFileSystemService } from '../../../platform/filesystem/common/fileSystemService';
 import { IGitService } from '../../../platform/git/common/gitService';
 import { ILogService } from '../../../platform/log/common/logService';
@@ -105,43 +104,16 @@ export class ExecutionSubagentToolCallingLoop extends ToolCallingLoop<IExecution
 		return context;
 	}
 
-	private static readonly DEFAULT_AGENTIC_PROXY_MODEL = 'exec-subagent-router-a';
-
 	/**
 	 * Get the endpoint to use for the execution subagent
 	 */
 	private async getEndpoint() {
-		const modelName = this._configurationService.getExperimentBasedConfig(ConfigKey.Advanced.ExecutionSubagentModel, this._experimentationService) as ChatEndpointFamily | undefined;
-		const useAgenticProxy = this._configurationService.getExperimentBasedConfig(ConfigKey.Advanced.ExecutionSubagentUseAgenticProxy, this._experimentationService);
-		const shellType = this.terminalService.terminalShellType;
-
-		if (useAgenticProxy) {
-			// Our custom models are not trained for PowerShell yet. Fall back to main agent endpoint.
-			if (shellType === 'powershell') {
-				return await this.endpointProvider.getChatEndpoint(this.options.request);
-			}
-			// Use agentic proxy with ExecutionSubagentModel or default to DEFAULT_AGENTIC_PROXY_MODEL
-			const agenticProxyModel = modelName || ExecutionSubagentToolCallingLoop.DEFAULT_AGENTIC_PROXY_MODEL;
-			return this.instantiationService.createInstance(ProxyAgenticEndpoint, agenticProxyModel);
+		const model_name = this._configurationService.getExperimentBasedConfig(ConfigKey.Advanced.ExecutionSubagentModel, this._experimentationService);
+		const models = await lm.selectChatModels({ vendor: 'customoai', id: model_name });
+		if (models.length === 0) {
+			throw new Error(`Execution subagent model ${model_name} not found`);
 		}
-
-		if (modelName) {
-			try {
-				// Try to get the specified model
-				const endpoint = await this.endpointProvider.getChatEndpoint(modelName);
-				if (endpoint.supportsToolCalls) {
-					return endpoint;
-				}
-				// Model does not support tool calls, fallback to main agent endpoint
-				return await this.endpointProvider.getChatEndpoint(this.options.request);
-			} catch (error) {
-				// Model not available, fallback to main agent endpoint
-				return await this.endpointProvider.getChatEndpoint(this.options.request);
-			}
-		} else {
-			// No model name specified, use main agent endpoint
-			return await this.endpointProvider.getChatEndpoint(this.options.request);
-		}
+		return await this.endpointProvider.getChatEndpoint(models[0]);
 	}
 
 	protected async buildPrompt(buildpromptContext: IBuildPromptContext, progress: Progress<ChatResponseReferencePart | ChatResponseProgressPart>, token: CancellationToken): Promise<IBuildPromptResult> {
