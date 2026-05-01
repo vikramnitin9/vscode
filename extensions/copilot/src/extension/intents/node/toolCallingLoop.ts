@@ -32,9 +32,10 @@ import { computePromptTokenDetails } from '../../../platform/tokenizer/node/prom
 import { tryFinalizeResponseStream } from '../../../util/common/chatResponseStreamImpl';
 import { ChatExtPerfMark, markChatExt } from '../../../util/common/performance';
 import { DeferredPromise, timeout } from '../../../util/vs/base/common/async';
+import { CancellationTokenSource } from '../../../util/vs/base/common/cancellation';
 import { CancellationError, isCancellationError } from '../../../util/vs/base/common/errors';
 import { Emitter } from '../../../util/vs/base/common/event';
-import { Disposable } from '../../../util/vs/base/common/lifecycle';
+import { Disposable, IDisposable } from '../../../util/vs/base/common/lifecycle';
 import { Mutable } from '../../../util/vs/base/common/types';
 import { URI } from '../../../util/vs/base/common/uri';
 import { generateUuid } from '../../../util/vs/base/common/uuid';
@@ -177,6 +178,25 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 	private chatSessionIdForTools: string | undefined;
 	private toolsAvailableEmitted = false;
 	private lastHeaderRequestId: string | undefined;
+
+	/**
+	 * Messages from the most recent successfully-rendered prompt. Used as the
+	 * cache-warming prefix for keep-alive probes (see {@link startBuildPromptKeepAlive}).
+	 */
+	private lastRenderedMessages: Raw.ChatMessage[] | undefined;
+
+	/**
+	 * The full {@link ToolCallingLoopFetchOptions} from the most recent fetch.
+	 * Probes reuse this wholesale (overriding only `messages` and `finishedCb`)
+	 * so that the server-side prompt cache key — which includes tool schemas,
+	 * model capabilities, and other request-shape fields — matches.
+	 */
+	private lastFetchOptions: ToolCallingLoopFetchOptions | undefined;
+
+	/** Interval between keep-alive probes while buildPrompt is in flight. */
+	private static readonly KEEP_ALIVE_INTERVAL_MS = 5 * 60 * 1000;
+	/** Maximum total time we will keep probing before giving up. */
+	private static readonly KEEP_ALIVE_MAX_DURATION_MS = 30 * 60 * 1000;
 
 	public appendAdditionalHookContext(context: string): void {
 		if (!context) {
@@ -1217,9 +1237,11 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 		const isContinuation = context.isContinuation || false;
 		markChatExt(this.options.conversation.sessionId, ChatExtPerfMark.WillBuildPrompt);
 		let buildPromptResult: IBuildPromptResult;
+		const keepAlive = this.startBuildPromptKeepAlive(token);
 		try {
 			buildPromptResult = await this.buildPrompt2(context, outputStream, token);
 		} finally {
+			keepAlive.dispose();
 			markChatExt(this.options.conversation.sessionId, ChatExtPerfMark.DidBuildPrompt);
 		}
 		this.throwIfCancelled(token);
@@ -1355,7 +1377,7 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 		let phase: string | undefined;
 		let compaction: OpenAIContextManagementResponse | undefined;
 		markChatExt(this.options.conversation.sessionId, ChatExtPerfMark.WillFetch);
-		const fetchResult = await this.fetch({
+		const fetchOptions: ToolCallingLoopFetchOptions = {
 			messages: this.applyMessagePostProcessing(effectiveBuildPromptResult.messages, { stripOrphanedToolCalls: isGeminiFamily(endpoint) }),
 			turnId: this.turn.id,
 			summarizedAtRoundId,
@@ -1396,7 +1418,8 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 			modelCapabilities: {
 				enableThinking,
 			},
-		}, token).finally(() => {
+		};
+		const fetchResult = await this.fetch(fetchOptions, token).finally(() => {
 			this.stopHookUserInitiated = false;
 		});
 		markChatExt(this.options.conversation.sessionId, ChatExtPerfMark.DidFetch);
@@ -1408,6 +1431,12 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 		if (fetchResult.type === ChatFetchResponseType.Success) {
 			this.lastHeaderRequestId = fetchResult.requestId;
 		}
+
+		// Cache the rendered messages and full fetch options so the next iteration's
+		// keep-alive probes can reuse them as a cache-warming prefix while buildPrompt2
+		// is awaiting slow tool calls.
+		this.lastRenderedMessages = effectiveBuildPromptResult.messages;
+		this.lastFetchOptions = fetchOptions;
 
 		const promptTokenDetails = await computePromptTokenDetails({
 			messages: effectiveBuildPromptResult.messages,
@@ -1663,6 +1692,99 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 		}
 
 		return filtered;
+	}
+
+	/**
+	 * While `buildPrompt2` is awaiting slow tool calls (e.g. long-running subagents),
+	 * the prompt cache on the model side can expire. This sets up a periodic side-channel
+	 * `fetch` that re-sends the previous turn's messages plus a dummy "Still working"
+	 * user message so that the server keeps the cache prefix warm.
+	 *
+	 * - Fires every {@link KEEP_ALIVE_INTERVAL_MS} starting 5 minutes after `buildPrompt2`
+	 *   is called (so a fast render incurs no probe).
+	 * - Stops after {@link KEEP_ALIVE_MAX_DURATION_MS} of total elapsed time.
+	 * - Probes are pure side-channel: results are discarded, no mutation of
+	 *   `toolCallRounds`, `toolCallResults`, or `conversation`. Nothing to "slice off".
+	 * - The first chunk of any probe response causes the network layer to stop reading
+	 *   (we only need the server to ingest the prefix to refresh its cache).
+	 *
+	 * Returns a disposable that clears the timer and cancels any in-flight probe.
+	 */
+	private startBuildPromptKeepAlive(parentToken: CancellationToken): IDisposable {
+		const baseMessages = this.lastRenderedMessages;
+		const baseFetchOptions = this.lastFetchOptions;
+		// Nothing useful to send if we haven't rendered a prompt yet (first iteration).
+		if (!baseMessages || baseMessages.length === 0 || !baseFetchOptions) {
+			return Disposable.None;
+		}
+
+		const startTime = Date.now();
+		const inFlight = new Set<CancellationTokenSource>();
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let disposed = false;
+
+		const probe = async () => {
+			if (disposed || parentToken.isCancellationRequested) {
+				return;
+			}
+			const elapsed = Date.now() - startTime;
+			if (elapsed > ToolCallingLoop.KEEP_ALIVE_MAX_DURATION_MS) {
+				this._logService.info(`[ToolCallingLoop] Keep-alive: max duration reached (${elapsed}ms), stopping probes`);
+				return;
+			}
+
+			const cts = new CancellationTokenSource();
+			inFlight.add(cts);
+
+			const probeMessages: Raw.ChatMessage[] = [
+				...baseMessages,
+				{
+					role: Raw.ChatRole.User,
+					content: [{ type: Raw.ChatCompletionContentPartKind.Text, text: 'Still working' }],
+				},
+			];
+
+			this._logService.info(`[ToolCallingLoop] Keep-alive: sending probe (elapsed=${elapsed}ms)`);
+			try {
+				await this.fetch({
+					...baseFetchOptions,
+					messages: this.applyMessagePostProcessing(probeMessages),
+					finishedCb: async (text) => text.length, // stop reading on first chunk
+				}, cts.token);
+			} catch (err) {
+				if (!isCancellationError(err)) {
+					this._logService.warn(`[ToolCallingLoop] Keep-alive probe failed: ${err instanceof Error ? err.message : String(err)}`);
+				}
+			} finally {
+				inFlight.delete(cts);
+				cts.dispose();
+			}
+
+			if (!disposed && !parentToken.isCancellationRequested) {
+				schedule();
+			}
+		};
+
+		const schedule = () => {
+			timer = setTimeout(probe, ToolCallingLoop.KEEP_ALIVE_INTERVAL_MS);
+		};
+
+		schedule();
+
+		return {
+			dispose: () => {
+				disposed = true;
+				if (timer) {
+					clearTimeout(timer);
+					timer = undefined;
+				}
+				for (const cts of inFlight) {
+					cts.cancel();
+					cts.dispose();
+				}
+				inFlight.clear();
+			},
+		};
 	}
 
 	private async buildPrompt2(buildPromptContext: IBuildPromptContext, stream: ChatResponseStream | undefined, token: CancellationToken): Promise<IBuildPromptResult> {
