@@ -194,9 +194,9 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 	private lastFetchOptions: ToolCallingLoopFetchOptions | undefined;
 
 	/** Interval between keep-alive probes while buildPrompt is in flight. */
-	private static readonly KEEP_ALIVE_INTERVAL_MS = 5 * 60 * 1000;
+	private static readonly KEEP_ALIVE_INTERVAL_MS = 4 * 60 * 1000;
 	/** Maximum total time we will keep probing before giving up. */
-	private static readonly KEEP_ALIVE_MAX_DURATION_MS = 30 * 60 * 1000;
+	private static readonly KEEP_ALIVE_MAX_DURATION_MS = 24 * 60 * 1000;
 
 	public appendAdditionalHookContext(context: string): void {
 		if (!context) {
@@ -1736,13 +1736,17 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 			const cts = new CancellationTokenSource();
 			inFlight.add(cts);
 
-			const probeMessages: Raw.ChatMessage[] = [
-				...baseMessages,
-				{
-					role: Raw.ChatRole.User,
-					content: [{ type: Raw.ChatCompletionContentPartKind.Text, text: 'Still working' }],
-				},
-			];
+			// Only add on a dummy user message if the last message was from the assistant.
+			const lastMessage = baseMessages[baseMessages.length - 1];
+			const probeMessages: Raw.ChatMessage[] = lastMessage.role === Raw.ChatRole.Assistant
+				? [
+					...baseMessages,
+					{
+						role: Raw.ChatRole.User,
+						content: [{ type: Raw.ChatCompletionContentPartKind.Text, text: 'Still working' }],
+					},
+				]
+				: [...baseMessages];
 
 			this._logService.info(`[ToolCallingLoop] Keep-alive: sending probe (elapsed=${elapsed}ms)`);
 			try {
