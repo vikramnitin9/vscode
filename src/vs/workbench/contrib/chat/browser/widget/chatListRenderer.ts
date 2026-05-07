@@ -1915,7 +1915,7 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 		// only pin terminal tools based on settings
 		const isTerminalTool = (part.kind === 'toolInvocation' || part.kind === 'toolInvocationSerialized') && part.toolSpecificData?.kind === 'terminal';
 		const isContributedTerminalToolInvocation = element
-			&& (element.sessionResource.scheme !== Schemas.vscodeChatInput && element.sessionResource.scheme !== Schemas.vscodeLocalChatSession) // contributed sessions
+			&& (element.sessionResource.scheme !== Schemas.vscodeChatInput && getChatSessionType(element.sessionResource) !== localChatSessionType) // contributed sessions
 			&& part.kind === 'toolInvocationSerialized' && part.toolSpecificData?.kind === 'terminal'; // contributed serialized terminal tool invocations data
 		if (isTerminalTool && !isContributedTerminalToolInvocation) {
 			// don't pin terminals with confirmation
@@ -2928,9 +2928,14 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 			if (review instanceof ChatPlanReviewData) {
 				review.completion.complete(undefined);
 			}
-			if (responseId) {
-				widget?.input.clearPlanReview(responseId);
-			}
+		}
+		// Always clear the docked widget once the response is complete —
+		// `isUsed` may already be true if the response was cancelled (see
+		// `ChatResponseModel.cancel()` → `ChatPlanReviewData.dismiss()`),
+		// in which case the branch above is skipped but the widget above
+		// the input still needs to go.
+		if (responseIsComplete && responseId) {
+			widget?.input.clearPlanReview(responseId);
 		}
 
 		// Build the inline progress message. While pending: "Plan review
