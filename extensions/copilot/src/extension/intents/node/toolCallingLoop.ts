@@ -196,7 +196,7 @@ export abstract class ToolCallingLoop<TOptions extends IToolCallingLoopOptions =
 	/** Interval between keep-alive probes while buildPrompt is in flight. */
 	private static readonly KEEP_ALIVE_INTERVAL_MS = 4 * 60 * 1000;
 	/** Maximum total time we will keep probing before giving up. */
-	private static readonly KEEP_ALIVE_MAX_DURATION_MS = 24 * 60 * 1000;
+	private static readonly KEEP_ALIVE_MAX_DURATION_MS = 15 * 60 * 1000;
 
 	public appendAdditionalHookContext(context: string): void {
 		if (!context) {
