@@ -137,6 +137,40 @@ describe('OpenAIEndpoint - Reasoning Properties', () => {
 			expect(messages[1].cot_id).toBe('reasoning-456');
 			expect(messages[1].cot_summary).toBe('complex reasoning here');
 		});
+
+		it('should merge extra body fields into the request body', () => {
+			const endpoint = instaService.createInstance(OpenAIEndpoint,
+				{
+					...modelMetadata,
+					supported_endpoints: [ModelSupportedEndpoint.ChatCompletions],
+					extraBody: {
+						thinking: {
+							type: 'disabled'
+						},
+						customSetting: {
+							enabled: true
+						}
+					}
+				},
+				'test-api-key',
+				'https://api.openai.com/v1/chat/completions');
+
+			const options = createTestOptions([{
+				role: Raw.ChatRole.User,
+				content: [{ type: Raw.ChatCompletionContentPartKind.Text, text: 'Hello' }]
+			}]);
+			const body = endpoint.createRequestBody(options);
+			endpoint.interceptBody(body);
+
+			expect(body).toMatchObject({
+				thinking: {
+					type: 'disabled'
+				},
+				customSetting: {
+					enabled: true
+				}
+			});
+		});
 	});
 
 	describe('Responses API mode (useResponsesApi = true)', () => {

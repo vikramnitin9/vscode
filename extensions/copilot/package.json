@@ -1965,6 +1965,11 @@
 										"additionalProperties": {
 											"type": "string"
 										}
+									},
+									"extraBody": {
+										"type": "object",
+										"description": "Additional JSON properties to merge into the request body for this model after Copilot builds the standard payload.",
+										"additionalProperties": true
 									}
 								},
 								"required": [
@@ -2064,6 +2069,11 @@
 										"additionalProperties": {
 											"type": "string"
 										}
+									},
+									"extraBody": {
+										"type": "object",
+										"description": "Additional JSON properties to merge into the request body for this model after Copilot builds the standard payload.",
+										"additionalProperties": true
 									}
 								},
 								"required": [

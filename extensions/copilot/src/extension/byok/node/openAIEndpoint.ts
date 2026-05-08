@@ -294,6 +294,9 @@ export class OpenAIEndpoint extends ChatEndpoint {
 			if (!this.useResponsesApi && body.stream) {
 				body['stream_options'] = { 'include_usage': true };
 			}
+			if (this.modelMetadata.extraBody) {
+				Object.assign(body, this.modelMetadata.extraBody);
+			}
 		}
 	}
 
