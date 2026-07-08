@@ -57,6 +57,51 @@ export interface ChangesetFileRemovedAction {
 }
 
 /**
+ * Update the {@link ChangesetFile.reviewed} flag for one or more files,
+ * identified by their {@link ChangesetFile.id}.
+ *
+ * Dispatched by the server as the user marks files reviewed or unreviewed
+ * (e.g. toggling a single file, or a "mark all as reviewed" affordance).
+ * Only servers that support the "review" functionality dispatch this; a
+ * server that leaves {@link ChangesetFile.reviewed} `undefined` never does.
+ *
+ * The reducer sets `reviewed` on every matching file and ignores any
+ * `fileIds` entry that does not correspond to a current file.
+ *
+ * @category Changeset Actions
+ * @version 1
+ */
+export interface ChangesetFilesReviewedChangedAction {
+	type: ActionType.ChangesetFilesReviewedChanged;
+	/** The {@link ChangesetFile.id}s whose reviewed state changed. */
+	fileIds: string[];
+	/** The new reviewed state to apply to each listed file. */
+	reviewed: boolean;
+}
+
+/**
+ * The changeset's full content changed. Full replacement semantics: `files`
+ * replaces the previous file list, and `operations`, when present, replaces
+ * the previous operation list.
+ *
+ * Producers SHOULD use this action for initial snapshots and bulk refreshes;
+ * use {@link ChangesetFileSetAction}, {@link ChangesetFileRemovedAction}, and
+ * {@link ChangesetOperationsChangedAction} for incremental updates.
+ *
+ * @category Changeset Actions
+ * @version 4
+ */
+export interface ChangesetContentChangedAction {
+	type: ActionType.ChangesetContentChanged;
+	/** Full replacement file list. */
+	files: ChangesetFile[];
+	/** Full replacement operation list. Omit when operations are unchanged. */
+	operations?: ChangesetOperation[];
+	/** Error information, if the changeset content change failed. */
+	error?: ErrorInfo;
+}
+
+/**
  * The set of operations available on this changeset changed. Full
  * replacement semantics: `operations` replaces the previous list (or
  * removes it entirely when `operations` is `undefined`).
