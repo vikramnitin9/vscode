@@ -367,7 +367,14 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 					[ApiChatLocation.Editor]: endpoint instanceof AutoChatEndpoint, // inline chat gets 'Auto' by default
 				},
 				isUserSelectable: endpoint.showInModelPicker,
-				warningText: endpoint instanceof AutoChatEndpoint ? undefined : endpoint.warningText,
+				warningText: endpoint instanceof AutoChatEndpoint ? undefined : (() => {
+					const texts: Record<string, string> = { ...endpoint.warningText };
+					if (endpoint.degradationReason) {
+						texts['degradation'] = endpoint.degradationReason;
+					}
+					return Object.keys(texts).length > 0 ? texts : undefined;
+				})(),
+				promo: endpoint instanceof AutoChatEndpoint ? undefined : endpoint.promo,
 				capabilities: {
 					imageInput: endpoint instanceof AutoChatEndpoint ? true : endpoint.supportsVision,
 					toolCalling: endpoint.supportsToolCalls,
@@ -833,8 +840,15 @@ export class CopilotLanguageModelWrapper extends Disposable {
 		let thinkingActive = false;
 		const finishCallback: FinishedCallback = async (_text, index, delta): Promise<undefined> => {
 			if (delta.thinking) {
-				// Show thinking progress for unencrypted thinking deltas
-				if (!isEncryptedThinkingDelta(delta.thinking)) {
+				if (isEncryptedThinkingDelta(delta.thinking)) {
+					if (options.includeEncryptedThinking) {
+						progress.report(new vscode.LanguageModelThinkingPart(
+							delta.thinking.text ?? '',
+							delta.thinking.id,
+							{ encrypted_content: delta.thinking.encrypted },
+						));
+					}
+				} else {
 					const text = delta.thinking.text ?? '';
 					progress.report(new vscode.LanguageModelThinkingPart(text, delta.thinking.id, delta.thinking.metadata));
 					thinkingActive = true;

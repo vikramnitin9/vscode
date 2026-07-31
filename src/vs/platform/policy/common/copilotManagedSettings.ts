@@ -14,6 +14,8 @@ import { PolicyDefinition } from './policy.js';
 
 export type { ManagedSettingsData } from '../../../base/common/policy.js';
 
+export type RawManagedSettingsData = Readonly<Record<string, unknown>>;
+
 /** Windows registry root for GitHub Copilot policies. */
 export const GITHUB_COPILOT_WIN32_REGISTRY_PATH = 'SOFTWARE\\Policies\\GitHubCopilot';
 
@@ -34,6 +36,30 @@ export const COPILOT_EXTRA_MARKETPLACES_KEY = 'extraKnownMarketplaces';
 
 /** Managed-settings key for the strict-marketplace allowlist (carried as a JSON-encoded array of source entries; absent = no restrictions, `[]` = lockdown). */
 export const COPILOT_STRICT_MARKETPLACES_KEY = 'strictKnownMarketplaces';
+
+/** Managed-settings key for the per-server MCP allowlist (carried as a JSON-encoded array of matcher entries; absent = no allow restriction, `[]` = only servers matching an entry, i.e. block all). */
+export const COPILOT_ALLOWED_MCP_SERVERS_KEY = 'allowedMcpServers';
+
+/** Managed-settings key for the per-server MCP denylist (carried as a JSON-encoded array of matcher entries; deny always takes precedence over allow). */
+export const COPILOT_DENIED_MCP_SERVERS_KEY = 'deniedMcpServers';
+
+/** Managed-settings key that blocks standalone user/workspace customizations. */
+export const COPILOT_STRICT_PLUGIN_ONLY_CUSTOMIZATION_KEY = 'strictPluginOnlyCustomization';
+
+/** Managed-settings key that makes the enterprise MCP allowlist authoritative. */
+export const COPILOT_ALLOW_MANAGED_MCP_SERVERS_ONLY_KEY = 'allowManagedMcpServersOnly';
+
+/** Managed-settings key that allows hooks only from managed sources. */
+export const COPILOT_ALLOW_MANAGED_HOOKS_ONLY_KEY = 'allowManagedHooksOnly';
+
+/** Policy-only configuration delivery slot for {@link COPILOT_STRICT_PLUGIN_ONLY_CUSTOMIZATION_KEY}. */
+export const COPILOT_STRICT_PLUGIN_ONLY_CUSTOMIZATION_CONFIG = 'chat.customizations.strictPluginOnlyCustomization';
+
+/** Policy-only configuration delivery slot for {@link COPILOT_ALLOW_MANAGED_MCP_SERVERS_ONLY_KEY}. */
+export const COPILOT_ALLOW_MANAGED_MCP_SERVERS_ONLY_CONFIG = 'chat.mcp.allowManagedServersOnly';
+
+/** Policy-only configuration delivery slot for {@link COPILOT_ALLOW_MANAGED_HOOKS_ONLY_KEY}. */
+export const COPILOT_ALLOW_MANAGED_HOOKS_ONLY_CONFIG = 'chat.hooks.allowManagedOnly';
 
 /**
  * Managed-settings key for the default chat model (carried as a plain string: `auto`, a model
@@ -429,6 +455,14 @@ const STRUCTURED_MANAGED_SETTINGS: readonly IStructuredManagedSetting[] = [
 		encode: encodeArray,
 	},
 	{
+		key: COPILOT_ALLOWED_MCP_SERVERS_KEY,
+		encode: encodeArray,
+	},
+	{
+		key: COPILOT_DENIED_MCP_SERVERS_KEY,
+		encode: encodeArray,
+	},
+	{
 		key: COPILOT_EXTRA_MARKETPLACES_KEY,
 		encode: encodeExtraMarketplaces,
 	},
@@ -564,12 +598,16 @@ export const IFileManagedSettingsService = createDecorator<IFileManagedSettingsS
 
 export interface IFileManagedSettingsService {
 	readonly _serviceBrand: undefined;
+	readonly rawManagedSettings: RawManagedSettingsData;
 	readonly managedSettings: ManagedSettingsData;
+	readonly onDidChangeRawManagedSettings: Event<RawManagedSettingsData>;
 	readonly onDidChangeManagedSettings: Event<ManagedSettingsData>;
 }
 
 export class NullFileManagedSettingsService implements IFileManagedSettingsService {
 	readonly _serviceBrand: undefined;
+	readonly rawManagedSettings: RawManagedSettingsData = {};
 	readonly managedSettings: ManagedSettingsData = {};
+	readonly onDidChangeRawManagedSettings = Event.None;
 	readonly onDidChangeManagedSettings = Event.None;
 }
