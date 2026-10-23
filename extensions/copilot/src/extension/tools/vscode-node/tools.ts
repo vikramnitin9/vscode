@@ -11,12 +11,15 @@ import { FileType } from '../../../platform/filesystem/common/fileTypes';
 import { Disposable, DisposableMap } from '../../../util/vs/base/common/lifecycle';
 import { autorun, autorunIterableDelta } from '../../../util/vs/base/common/observableInternal';
 import { URI } from '../../../util/vs/base/common/uri';
+import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
 import { getContributedToolName } from '../common/toolNames';
 import { isVscodeLanguageModelTool } from '../common/toolsRegistry';
 import { IToolsService } from '../common/toolsService';
 import { IToolGroupingCache, IToolGroupingService } from '../common/virtualTools/virtualToolTypes';
 import '../node/allTools';
 import { extractSessionId } from '../node/memoryTool';
+import { ExecutionSubagentTool } from '../node/executionSubagentTool';
+import { AgentHostExecutionSubagentTool } from './agentHostExecutionSubagentTool';
 import './allTools';
 
 export class ToolsContribution extends Disposable {
@@ -26,12 +29,16 @@ export class ToolsContribution extends Disposable {
 		@IToolGroupingService toolGroupingService: IToolGroupingService,
 		@IVSCodeExtensionContext private readonly extensionContext: IVSCodeExtensionContext,
 		@IFileSystemService private readonly fileSystemService: IFileSystemService,
+		@IInstantiationService instantiationService: IInstantiationService,
 	) {
 		super();
 
 		for (const [name, tool] of toolsService.copilotTools) {
 			if (isVscodeLanguageModelTool(tool)) {
-				this._register(vscode.lm.registerTool(getContributedToolName(name), tool));
+				const implementation = tool instanceof ExecutionSubagentTool
+					? instantiationService.createInstance(AgentHostExecutionSubagentTool, tool)
+					: tool;
+				this._register(vscode.lm.registerTool(getContributedToolName(name), implementation));
 			}
 		}
 

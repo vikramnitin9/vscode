@@ -2810,9 +2810,11 @@ export class CopilotAgentSession extends Disposable {
 	}
 
 	private _createToolCallMeta(toolName: string, parameters: Record<string, unknown> | undefined): Mutable<IToolCallMeta> {
-		const toolKind = getToolKind(toolName, parameters);
-		const subagentMeta = toolKind === 'subagent' ? getSubagentMetadata(parameters) : undefined;
 		const clientToolName = this._clientToolName(toolName);
+		const isLocalExecutionSubagent = clientToolName === 'executionSubagent'
+			&& this._configurationService.getRootValue(copilotCliConfigSchema, CopilotCliConfigKey.ExecutionSubagentUseLocalHarness) === true;
+		const toolKind = isLocalExecutionSubagent ? 'subagent' : getToolKind(toolName, parameters);
+		const subagentMeta = toolKind === 'subagent' ? getSubagentMetadata(parameters) : undefined;
 		const networkRestrictions = this._clientToolNames.has(clientToolName)
 			? getCopilotBrowserSandboxNetworkRestrictions(this._configurationService, { session: this.launchOwner.toString(), chat: this._chatChannelUri.toString() }, clientToolName) : undefined;
 		return {
@@ -2822,7 +2824,7 @@ export class CopilotAgentSession extends Disposable {
 			toolKind,
 			language: toolKind === 'terminal' ? getShellLanguage(toolName) : undefined,
 			subagentDescription: subagentMeta?.description,
-			subagentAgentName: subagentMeta?.agentName,
+			subagentAgentName: isLocalExecutionSubagent ? 'execution' : subagentMeta?.agentName,
 		};
 	}
 
@@ -3377,8 +3379,10 @@ export class CopilotAgentSession extends Disposable {
 					}, this._toolSearchFailure('Tool call cancelled: session is aborting'), 'tool-search'),
 				};
 			}
+			const isLocalExecutionSubagent = def.name === 'executionSubagent'
+				&& this._configurationService.getRootValue(copilotCliConfigSchema, CopilotCliConfigKey.ExecutionSubagentUseLocalHarness) === true;
 			const defer: 'auto' | 'never' | undefined = toolSearchActive
-				? (NON_DEFERRED_CLIENT_TOOL_NAMES.has(def.name) ? 'never' : 'auto')
+				? (isLocalExecutionSubagent || NON_DEFERRED_CLIENT_TOOL_NAMES.has(def.name) ? 'never' : 'auto')
 				: undefined;
 			const sdkPolicy = getClientToolSdkPolicy(def.name);
 			return {
@@ -6772,7 +6776,10 @@ export class CopilotAgentSession extends Disposable {
 			: settingId === AgentHostCopilotExecutionSubagentModelSettingId
 				? CopilotCliConfigKey.ExecutionSubagentModelDefaultControlled
 				: undefined;
-		if (defaultControlledKey !== undefined && this._configurationService.getRootValue(copilotCliConfigSchema, defaultControlledKey) !== true) {
+		if (defaultControlledKey !== undefined && (
+			this._configurationService.getRootValue(copilotCliConfigSchema, CopilotCliConfigKey.ExecutionSubagentUseLocalHarness) === true
+			|| this._configurationService.getRootValue(copilotCliConfigSchema, defaultControlledKey) !== true
+		)) {
 			this._pendingSettingExperimentTriggers.delete(settingId);
 			return;
 		}

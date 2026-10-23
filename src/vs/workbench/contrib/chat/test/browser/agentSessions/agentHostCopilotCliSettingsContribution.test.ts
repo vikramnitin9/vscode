@@ -112,6 +112,7 @@ const fullSchema: Record<string, ConfigPropertySchema> = {
 	[CopilotCliConfigKey.SearchSubagent]: { type: 'boolean', title: 'Search Subagent' },
 	[CopilotCliConfigKey.ExecutionSubagent]: { type: 'boolean', title: 'Runtime Execution Subagent' },
 	[CopilotCliConfigKey.ExecutionSubagentModel]: { type: 'string', title: 'Runtime Execution Subagent Model' },
+	[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: { type: 'boolean', title: 'Local Harness Execution Subagent' },
 	[CopilotCliConfigKey.ExecutionSubagentDefaultControlled]: { type: 'boolean', title: 'Runtime Execution Subagent Default Control' },
 	[CopilotCliConfigKey.ExecutionSubagentModelDefaultControlled]: { type: 'boolean', title: 'Runtime Execution Subagent Model Default Control' },
 	[CopilotCliConfigKey.LocalIndexEnabled]: { type: 'boolean', title: 'Local Session Index' },
@@ -176,6 +177,7 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 			[CopilotSearchSubagentEnabledSettingId]: true,
 			[AgentHostCopilotExecutionSubagentEnabledSettingId]: true,
 			[AgentHostCopilotExecutionSubagentModelSettingId]: ' exec-agent-b ',
+			'chat.agentHost.copilot.executionSubagent.useLocalHarness': true,
 			[CopilotLocalIndexEnabledSettingId]: false,
 			[AgentHostToolSearchEnabledSettingId]: true,
 			[AgentHostToolSearchDeferThresholdSettingId]: 5.9,
@@ -193,7 +195,7 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 
 		// The shared forwarder dispatches one RootConfigChanged per key; merge them
 		// and assert the full forwarded set (order-independent).
-		assert.strictEqual(agentHostService.dispatchedActions.length, 23);
+		assert.strictEqual(agentHostService.dispatchedActions.length, 24);
 		const merged = Object.assign({}, ...agentHostService.dispatchedActions.map(a => (a.action as IRootConfigChangedAction).config));
 		assert.deepStrictEqual(merged, {
 			[CopilotCliConfigKey.CopilotSdkLogLevel]: 'trace',
@@ -204,6 +206,7 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 			[CopilotCliConfigKey.SearchSubagent]: true,
 			[CopilotCliConfigKey.ExecutionSubagent]: true,
 			[CopilotCliConfigKey.ExecutionSubagentModel]: 'exec-agent-b',
+			[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: true,
 			[CopilotCliConfigKey.ExecutionSubagentDefaultControlled]: false,
 			[CopilotCliConfigKey.ExecutionSubagentModelDefaultControlled]: false,
 			[CopilotCliConfigKey.LocalIndexEnabled]: false,
@@ -238,7 +241,7 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 		});
 	});
 
-	test('forwards runtime execution settings and resets independently of the extension-native setting', async () => {
+	test('forwards execution settings and harness changes independently of the extension-native setting', async () => {
 		const { agentHostService, configurationService } = setup(disposables, {
 			'github.copilot.chat.executionSubagent.enabled': true,
 			'github.copilot.chat.executionSubagent.model': 'extension-model',
@@ -246,6 +249,7 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 		agentHostService.setRootState(makeRootStateWithSchema({
 			[CopilotCliConfigKey.ExecutionSubagent]: fullSchema[CopilotCliConfigKey.ExecutionSubagent],
 			[CopilotCliConfigKey.ExecutionSubagentModel]: fullSchema[CopilotCliConfigKey.ExecutionSubagentModel],
+			[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: fullSchema[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness],
 		}));
 		await flush();
 
@@ -254,6 +258,8 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 			[AgentHostCopilotExecutionSubagentModelSettingId, ' exec-agent-b '],
 			[AgentHostCopilotExecutionSubagentModelSettingId, '   '],
 			[AgentHostCopilotExecutionSubagentEnabledSettingId, false],
+			['chat.agentHost.copilot.executionSubagent.useLocalHarness', true],
+			['chat.agentHost.copilot.executionSubagent.useLocalHarness', false],
 		] as const) {
 			await configurationService.setUserConfiguration(settingId, value);
 			configurationService.onDidChangeConfigurationEmitter.fire({
@@ -268,10 +274,13 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 		assert.deepStrictEqual(agentHostService.dispatchedActions.map(a => (a.action as IRootConfigChangedAction).config), [
 			{ [CopilotCliConfigKey.ExecutionSubagent]: false },
 			{ [CopilotCliConfigKey.ExecutionSubagentModel]: 'gpt-5.6-luna' },
+			{ [CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: false },
 			{ [CopilotCliConfigKey.ExecutionSubagent]: true },
 			{ [CopilotCliConfigKey.ExecutionSubagentModel]: 'exec-agent-b' },
 			{ [CopilotCliConfigKey.ExecutionSubagentModel]: '' },
 			{ [CopilotCliConfigKey.ExecutionSubagent]: false },
+			{ [CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: true },
+			{ [CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: false },
 		]);
 	});
 
@@ -560,6 +569,7 @@ suite('AgentHostCopilotCliSettingsContribution', () => {
 			[CopilotCliConfigKey.SearchSubagent]: false,
 			[CopilotCliConfigKey.ExecutionSubagent]: false,
 			[CopilotCliConfigKey.ExecutionSubagentModel]: 'gpt-5.6-luna',
+			[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: false,
 			[CopilotCliConfigKey.ExecutionSubagentDefaultControlled]: true,
 			[CopilotCliConfigKey.ExecutionSubagentModelDefaultControlled]: true,
 			[CopilotCliConfigKey.LocalIndexEnabled]: true,

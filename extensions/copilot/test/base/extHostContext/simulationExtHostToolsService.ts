@@ -53,7 +53,7 @@ export class SimulationExtHostToolsService extends BaseToolsService implements I
 	constructor(
 		private readonly _disabledTools: Set<string>,
 		@ILogService logService: ILogService,
-		@IInstantiationService instantiationService: IInstantiationService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super(logService);
 		this._inner = instantiationService.createInstance(ToolsService);
@@ -63,7 +63,7 @@ export class SimulationExtHostToolsService extends BaseToolsService implements I
 	}
 
 	private ensureToolsRegistered() {
-		this._lmToolRegistration ??= new ToolsContribution(this, {} as any, { threshold: observableValue(this, 128) } as any, {} as any, {} as any);
+		this._lmToolRegistration ??= new ToolsContribution(this, {} as any, { threshold: observableValue(this, 128) } as any, {} as any, {} as any, this.instantiationService);
 	}
 
 	getCopilotTool(name: string): ICopilotTool<any> | undefined {

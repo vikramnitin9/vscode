@@ -11081,7 +11081,7 @@ suite('CopilotAgent', () => {
 			}
 		});
 
-		test('restarts the runtime when execution enablement or model changes and restores session-model inheritance', async () => {
+		test('restarts the runtime when execution enablement, model or harness changes and restores session-model inheritance', async () => {
 			const client = new TestCopilotClient([]);
 			const { agent, configurationService } = createTestAgentContext(disposables, { copilotClient: client });
 			const observed: { enabled: string | undefined; model: string | undefined; experimentModel: string | undefined; stops: number }[] = [];
@@ -11103,6 +11103,8 @@ suite('CopilotAgent', () => {
 					{ [CopilotCliConfigKey.ExecutionSubagentModel]: ' exec-agent-b ' },
 					{ [CopilotCliConfigKey.ExecutionSubagentModel]: '' },
 					{ [CopilotCliConfigKey.ExecutionSubagent]: false },
+					{ [CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: true },
+					{ [CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: false },
 				]) {
 					configurationService.updateRootConfig(config);
 					await agent.listChatsToMigrate();
@@ -11115,6 +11117,8 @@ suite('CopilotAgent', () => {
 					{ enabled: 'true', model: undefined, experimentModel: 'exec-agent-b', stops: 2 },
 					{ enabled: 'true', model: undefined, experimentModel: 'null', stops: 3 },
 					{ enabled: 'false', model: undefined, experimentModel: 'null', stops: 4 },
+					{ enabled: 'false', model: undefined, experimentModel: 'null', stops: 5 },
+					{ enabled: 'false', model: undefined, experimentModel: 'null', stops: 6 },
 				]);
 			} finally {
 				await disposeAgent(agent);

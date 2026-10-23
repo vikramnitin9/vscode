@@ -17985,6 +17985,22 @@ Use the attached image as context.
 			});
 		});
 
+		test('does not report runtime execution exposure when the Local harness is selected', async () => {
+			const telemetryService = new TestExperimentTriggerTelemetryService();
+			const { session, mockSession } = await createAgentSession(disposables, {
+				telemetryService,
+				rootValues: {
+					[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: true,
+					[CopilotCliConfigKey.ExecutionSubagentDefaultControlled]: true,
+					[CopilotCliConfigKey.ExecutionSubagentModelDefaultControlled]: true,
+					[CopilotCliVSCodeAssignmentContextKey]: 'assignment-context',
+				},
+			});
+			session.resetTurnState('local-execution-turn');
+			mockSession.fire('assistant.turn_start', { turnId: 'parent-turn' });
+			assert.deepStrictEqual(telemetryService.triggers, []);
+		});
+
 		test('suppresses each overridden runtime execution setting trigger independently', async () => {
 			const results: Record<string, readonly string[]> = {};
 			for (const [name, enabledDefaultControlled, modelDefaultControlled] of [
@@ -21948,6 +21964,34 @@ Use the attached image as context.
 			const names = ['list_agent_hosts', 'create_remote_session', 'send_remote_message', 'get_remote_session'];
 			const { runtime } = await createAgentSession(disposables, {
 				clientSnapshot: { ...snapshot, tools: names.map(name => ({ name })) },
+			});
+
+			test('keeps the selected Local execution subagent eager and groups its nested terminal calls', async () => {
+				const observed = [];
+				for (const useLocalHarness of [false, true]) {
+					const { runtime, mockSession, signals } = await createAgentSession(disposables, {
+						clientSnapshot: { ...snapshot, tools: [{ name: 'executionSubagent' }] },
+						rootValues: { [CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: useLocalHarness },
+					});
+					mockSession.fire('tool.execution_start', {
+						toolCallId: 'local-execution',
+						toolName: 'executionSubagent',
+						arguments: { query: 'Build the project', description: 'Run build' },
+					});
+					const start = getActions(signals).find(action => action.type === ActionType.ChatToolCallStart);
+					assert.ok(start);
+					const meta = readToolCallMeta(start);
+					observed.push({
+						tools: runtime.createClientSdkTools(true).map(({ name, defer }) => ({ name, defer })),
+						kind: meta.toolKind,
+						agent: meta.subagentAgentName,
+						description: meta.subagentDescription,
+					});
+				}
+				assert.deepStrictEqual(observed, [
+					{ tools: [{ name: 'executionSubagent', defer: 'auto' }], kind: undefined, agent: undefined, description: undefined },
+					{ tools: [{ name: 'executionSubagent', defer: 'never' }], kind: 'subagent', agent: 'execution', description: 'Run build' },
+				]);
 			});
 
 			assert.deepStrictEqual(

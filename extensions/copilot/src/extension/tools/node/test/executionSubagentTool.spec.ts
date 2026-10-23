@@ -20,6 +20,7 @@ function createTool() {
 	let loopOptions: { subAgentInvocationId?: string } | undefined;
 	const loop = {
 		backgroundCommands: [],
+		dispose: () => { },
 		getModelName: async () => 'Execution Model',
 		run: async () => ({
 			response: { type: ChatFetchResponseType.Success },

@@ -52,6 +52,8 @@ export const enum CopilotCliConfigKey {
 	ExecutionSubagent = 'executionSubagent',
 	/** Runtime model ID for the execution subagent; empty inherits the session model. */
 	ExecutionSubagentModel = 'executionSubagentModel',
+	/** Select the extension's Local harness execution subagent instead of the SDK implementation. */
+	ExecutionSubagentUseLocalHarness = 'executionSubagentUseLocalHarness',
 	/** Whether the workbench enablement value is controlled by its configuration default. */
 	ExecutionSubagentDefaultControlled = 'executionSubagentDefaultControlled',
 	/** Whether the workbench model value is controlled by its configuration default. */
@@ -123,6 +125,8 @@ export function isImageGenerationEnabledByDefault(quality: string | undefined): 
 export const AgentHostCopilotExecutionSubagentEnabledSettingId = 'chat.agentHost.copilot.executionSubagent.enabled';
 
 export const AgentHostCopilotExecutionSubagentModelSettingId = 'chat.agentHost.copilot.executionSubagent.model';
+
+export const AgentHostCopilotExecutionSubagentUseLocalHarnessSettingId = 'chat.agentHost.copilot.executionSubagent.useLocalHarness';
 
 export const DEFAULT_COPILOT_EXECUTION_SUBAGENT_MODEL = 'gpt-5.6-luna';
 
@@ -294,6 +298,12 @@ export const copilotCliConfigSchema = createSchema({
 		title: localize('agentHost.config.executionSubagentModel.title', "Runtime Execution Subagent Model"),
 		description: localize('agentHost.config.executionSubagentModel.description', "Default model ID for the Copilot runtime execution subagent. Empty inherits the session model. Runtime experiment assignments may override this default. Changing this setting restarts the Copilot runtime after active turns finish."),
 		default: DEFAULT_COPILOT_EXECUTION_SUBAGENT_MODEL,
+	}),
+	[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: schemaProperty<boolean>({
+		type: 'boolean',
+		title: localize('agentHost.config.executionSubagentUseLocalHarness.title', "Local Harness Execution Subagent"),
+		description: localize('agentHost.config.executionSubagentUseLocalHarness.description', "Use the Copilot extension's Local harness execution subagent and VS Code terminal tools instead of the SDK execution subagent. This takes precedence over runtime enablement and experiment assignments. The Local harness model and turn limit settings apply. Changing this setting restarts the runtime after active turns finish."),
+		default: false,
 	}),
 	[CopilotCliConfigKey.ExecutionSubagentDefaultControlled]: schemaProperty<boolean>({
 		type: 'boolean',

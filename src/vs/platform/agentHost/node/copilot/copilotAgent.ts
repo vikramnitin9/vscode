@@ -1497,6 +1497,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 			readLocalModelRootConfig(this._configurationService).enabled,
 			this._isExecutionSubagentEnabled(),
 			this._getExecutionSubagentModel(),
+			this._configurationService.getRootValue(copilotCliConfigSchema, CopilotCliConfigKey.ExecutionSubagentUseLocalHarness) === true,
 		);
 	}
 

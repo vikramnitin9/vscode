@@ -81,10 +81,10 @@ function reportManagedSettings(config: ResumeSessionConfig | undefined): void {
 	});
 }
 
-function returningSession(session: CopilotSession): CopilotClient {
+function returningSession(session: CopilotSession, onConfig?: (config: SessionConfig | ResumeSessionConfig | undefined) => void): CopilotClient {
 	return {
-		createSession: async config => { reportManagedSettings(config); return session; },
-		resumeSession: async (_id, config) => { reportManagedSettings(config); return session; },
+		createSession: async config => { onConfig?.(config); reportManagedSettings(config); return session; },
+		resumeSession: async (_id, config) => { onConfig?.(config); reportManagedSettings(config); return session; },
 		rpc: { managedSettings: createUnmanagedCopilotSettings() },
 	} as CopilotClient;
 }
@@ -2139,9 +2139,10 @@ suite('CopilotSessionLauncher resume fallback', () => {
 suite('CopilotSessionLauncher execution subagent', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	function setup(kind: 'create' | 'resume', defaultEnabled: boolean, runtimeAvailable: boolean, hasClientTool = true, setToolsError?: Error, catalogError?: Error) {
+	function setup(kind: 'create' | 'resume', defaultEnabled: boolean, runtimeAvailable: boolean, hasClientTool = true, options: { setToolsError?: Error; catalogError?: Error; useLocalHarness?: boolean } = {}) {
 		const toolUpdates: string[][] = [];
 		const logService = new CapturingLogService();
+		let launchConfig: ResumeSessionConfig | undefined;
 		let descriptorRequests = 0;
 		let disconnects = 0;
 		const session = {
@@ -2149,8 +2150,8 @@ suite('CopilotSessionLauncher execution subagent', () => {
 			on: () => () => { },
 			disconnect: async () => { disconnects++; },
 			setTools: async (tools: Parameters<CopilotSession['setTools']>[0]) => {
-				if (setToolsError) {
-					throw setToolsError;
+				if (options.setToolsError) {
+					throw options.setToolsError;
 				}
 				toolUpdates.push(tools.map(tool => tool.name));
 			},
@@ -2159,8 +2160,8 @@ suite('CopilotSessionLauncher execution subagent', () => {
 				tools: {
 					getBuiltinDescriptors: async () => {
 						descriptorRequests++;
-						if (catalogError) {
-							throw catalogError;
+						if (options.catalogError) {
+							throw options.catalogError;
 						}
 						return { tools: runtimeAvailable ? [{ name: 'execution_subagent' }] : [] };
 					},
@@ -2169,12 +2170,13 @@ suite('CopilotSessionLauncher execution subagent', () => {
 		} as unknown as CopilotSession;
 		const launcher = createTestLauncher(undefined, {
 			[CopilotCliConfigKey.ExecutionSubagent]: defaultEnabled,
+			[CopilotCliConfigKey.ExecutionSubagentUseLocalHarness]: options.useLocalHarness === true,
 			[CopilotCliConfigKey.ModelCapabilityOverrides]: {
 				'*': { availableTools: ['builtin:*', 'custom:*'], excludedTools: ['mcp:*'] },
 			},
 		}, logService);
 		const base = {
-			client: returningSession(session),
+			client: returningSession(session, config => { launchConfig = config; }),
 			extensionSdkPath: '/copilot-sdk',
 			sessionId: session.sessionId,
 			workingDirectory: testWorkingDirectory,
@@ -2195,11 +2197,34 @@ suite('CopilotSessionLauncher execution subagent', () => {
 				handler: () => 'done',
 			})),
 		};
-		return { launch: () => launcher.launch(plan, runtime), toolUpdates, logService, descriptorRequests: () => descriptorRequests, disconnects: () => disconnects };
+		return { launch: () => launcher.launch(plan, runtime), toolUpdates, logService, get launchConfig() { return launchConfig; }, descriptorRequests: () => descriptorRequests, disconnects: () => disconnects };
 	}
 
 	for (const kind of ['create', 'resume'] as const) {
 		for (const defaultEnabled of [false, true]) {
+			test(`${kind}: local harness selection overrides runtime execution with VS Code default=${defaultEnabled}`, async () => {
+				const fixture = setup(kind, defaultEnabled, true, true, { useLocalHarness: true });
+				const launched = await fixture.launch();
+				try {
+					const excludedTools = fixture.launchConfig?.excludedTools;
+					assert.ok(Array.isArray(excludedTools));
+					assert.deepStrictEqual({
+						descriptorRequests: fixture.descriptorRequests(),
+						toolUpdates: fixture.toolUpdates,
+						tools: fixture.launchConfig?.tools?.map(tool => tool.name),
+						excludesRuntimeExecution: excludedTools.includes('builtin:execution_subagent'),
+						preservesToolFilters: excludedTools.includes('mcp:*'),
+					}, {
+						descriptorRequests: 0,
+						toolUpdates: [],
+						tools: ['executionSubagent', 'clientRead'],
+						excludesRuntimeExecution: true,
+						preservesToolFilters: true,
+					});
+				} finally {
+					launched.dispose();
+				}
+			});
 			for (const runtimeAvailable of [false, true]) {
 				test(`${kind}: runtime execution availability=${runtimeAvailable} controls client tool suppression with VS Code default=${defaultEnabled}`, async () => {
 					const fixture = setup(kind, defaultEnabled, runtimeAvailable);
@@ -2221,7 +2246,7 @@ suite('CopilotSessionLauncher execution subagent', () => {
 		for (const message of ['Method not found: tools.getBuiltinDescriptors', 'Runtime tool catalog RPC failed']) {
 			test(`${kind}: keeps the extension execution tool when the runtime catalog fails with ${message}`, async () => {
 				const error = new Error(message);
-				const fixture = setup(kind, false, false, true, undefined, error);
+				const fixture = setup(kind, false, false, true, { catalogError: error });
 				const launched = await fixture.launch();
 				try {
 					assert.deepStrictEqual({
@@ -2259,7 +2284,7 @@ suite('CopilotSessionLauncher execution subagent', () => {
 
 	test('disconnects and surfaces a failure to remove the competing extension execution tool', async () => {
 		const error = new Error('setTools failed');
-		const fixture = setup('resume', false, true, true, error);
+		const fixture = setup('resume', false, true, true, { setToolsError: error });
 		await assert.rejects(fixture.launch(), failure => failure === error);
 		assert.strictEqual(fixture.disconnects(), 1);
 	});

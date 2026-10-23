@@ -1025,6 +1025,12 @@ export class CopilotSessionLauncher implements ICopilotSessionLauncher {
 	}
 
 	private async _configureExecutionSubagentTool(session: CopilotSessionWrapper['session'], config: ResumeSessionConfig): Promise<void> {
+		if (this._configurationService.getRootValue(copilotCliConfigSchema, CopilotCliConfigKey.ExecutionSubagentUseLocalHarness) === true) {
+			if (!config.tools?.some(tool => tool.name === 'executionSubagent')) {
+				this._logService.warn(`[Copilot:${session.sessionId}] Local harness execution subagent is enabled but its client tool is unavailable; the SDK implementation remains excluded`);
+			}
+			return;
+		}
 		if (!config.tools?.some(tool => tool.name === 'executionSubagent')) {
 			return;
 		}
@@ -1250,6 +1256,7 @@ export class CopilotSessionLauncher implements ICopilotSessionLauncher {
 			'builtin:dynamic_workflows_manage',
 			// Keep the runtime's search subagent disabled until it is validated in the Agent Host.
 			...(searchSubagentEnabled ? [] : [`builtin:${CopilotToolName.SearchCodeSubagent}`]),
+			...(this._configurationService.getRootValue(copilotCliConfigSchema, CopilotCliConfigKey.ExecutionSubagentUseLocalHarness) === true ? ['builtin:execution_subagent'] : []),
 			...(plan.isEphemeral ? EPHEMERAL_DISABLED_COPILOT_TOOLS : []),
 		];
 		const clientToolNames = filterClientToolNames(clientToolNamesFromSnapshot(plan.snapshot), availableTools, excludedTools);
